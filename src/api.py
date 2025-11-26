@@ -100,7 +100,7 @@ async def get_video_info(video_hash: str = Path(..., description="Hash of cached
     if video_hash not in video_cache:
         raise HTTPException(status_code=404, detail="Video hash not found in cache")
 
-    cached = video_cache[video_hash]
+    cached: dict = video_cache[video_hash]  # type: ignore
     return VideoInfo(**cached)
 
 
@@ -158,8 +158,8 @@ async def download(url: str = Query(..., description="Video URL from any platfor
     tags=["Cache Operations"],
     responses={
         200: {
-            "description": "Cached video file downloaded successfully",
-            "content": {"video/mp4": {}}
+            "description": "Cached video file downloaded successfully as binary stream",
+            "content": {"application/octet-stream": {}}
         },
         404: {"description": "Video hash not found in cache or URL missing from cache entry"},
         500: {"description": "Server error during video download"}
@@ -170,8 +170,8 @@ async def download_by_hash(video_hash: str = Path(..., description="Hash of cach
     if video_hash not in video_cache:
         raise HTTPException(status_code=404, detail="Video hash not found in cache. Please extract info first.")
 
-    cached = video_cache[video_hash]
-    url = cached.get("url")
+    cached: dict = video_cache[video_hash]  # type: ignore
+    url = cached["url"] if "url" in cached else None
 
     if not url:
         raise HTTPException(status_code=404, detail="Video URL not found in cache")
@@ -197,7 +197,7 @@ async def download_by_hash(video_hash: str = Path(..., description="Hash of cach
     tags=["Video Operations"],
     responses={
         200: {
-            "description": "Video downloaded with specified options. Video hash, quality, and format in response headers.",
+            "description": "Video downloaded with specified options as binary stream. Response headers include X-Video-Hash, X-Quality, and X-Format.",
             "content": {"application/octet-stream": {}}
         },
         400: {"description": "Invalid URL or invalid download parameters"},
@@ -278,10 +278,11 @@ async def get_cache_status():
     """View all cached videos and their expiration status."""
     cache_summary = []
     for video_hash in list(video_cache):
-        info = video_cache.get(video_hash, {})
+        info: dict = video_cache[video_hash]  # type: ignore
         timestamp = info.get("timestamp", time.time())
         age_seconds = time.time() - timestamp
-        expires_in = max(0, (os.getenv('CACHE_TTL_SECONDS') and int(os.getenv('CACHE_TTL_SECONDS')) or 3600) - age_seconds)
+        cache_ttl = int(os.getenv('CACHE_TTL_SECONDS', '3600'))
+        expires_in = max(0, cache_ttl - age_seconds)
 
         cache_summary.append({
             "video_hash": video_hash,
