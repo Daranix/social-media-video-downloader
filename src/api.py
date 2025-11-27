@@ -1,14 +1,17 @@
 import os
 import time
+import uuid
 from fastapi import FastAPI, HTTPException, Query, Path
 from fastapi.responses import FileResponse
 
-from .config import TEMP_DIR
-from .cache import video_cache, cleanup_expired_cache
-from .models import VideoInfo, VideoDownloadRequest
-from .utils import is_url_valid
-from .ytdl_ops import extract_video_info, download_video, download_video_advanced
+from src.cache.cache_registry import CacheRegistry
 
+from .config import TEMP_DIR
+from .models import VideoInfo, VideoDownloadOptions
+from .ytdl_ops import extract_video_info, download_video, download_video
+
+
+CacheRegistry.create('default', 'in-memory')
 
 app = FastAPI(
     title="Video Downloader API",
@@ -17,7 +20,6 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
-
 
 @app.get(
     "/api/extract",
@@ -50,21 +52,10 @@ app = FastAPI(
 async def extract_info(url: str = Query(..., description="Video URL from any platform supported by yt-dlp")):
     """Extract video information and cache it with hash based on platform and video ID."""
     try:
-        # Cleanup expired cache before adding new entry
-        cleanup_expired_cache()
 
-        # Validate URL
-        if not is_url_valid(url):
-            raise HTTPException(status_code=400, detail="URL is not valid or not supported by yt-dlp")
 
         video_info = extract_video_info(url)
         video_hash = video_info["video_hash"]
-
-        # Store in cache with timestamp (info only, no file)
-        video_cache[video_hash] = {
-            **video_info,
-            "timestamp": time.time(),
-        }
 
         return VideoInfo(**video_info)
     except HTTPException as e:
@@ -97,7 +88,9 @@ async def extract_info(url: str = Query(..., description="Video URL from any pla
 )
 async def get_video_info(video_hash: str = Path(..., description="Hash of cached video")):
     """Retrieve cached video information by hash."""
-    if video_hash not in video_cache:
+
+    video_cache = CacheRegistry.get_default()
+    if video_cache.exists(video_hash):
         raise HTTPException(status_code=404, detail="Video hash not found in cache")
 
     cached: dict = video_cache[video_hash]  # type: ignore
@@ -120,31 +113,27 @@ async def get_video_info(video_hash: str = Path(..., description="Hash of cached
 async def download(url: str = Query(..., description="Video URL from any platform supported by yt-dlp")):
     """Download video and return file. Video info is automatically extracted and cached."""
     try:
-        # Validate URL
-        if not is_url_valid(url):
-            raise HTTPException(status_code=400, detail="URL is not valid or not supported by yt-dlp")
 
-        video_info = extract_video_info(url)
-        video_hash = video_info["video_hash"]
-
-        # Cache video info (not the file)
-        video_cache[video_hash] = {
-            **video_info,
-            "timestamp": time.time(),
-        }
+        video_uuid = uuid.uuid4().hex
 
         # Create temporary file path for download
-        file_name = f"{video_hash}.mp4"
+        file_name = f"{video_uuid}.mp4"
         file_path = os.path.join(TEMP_DIR, file_name)
 
+
+        options = VideoDownloadOptions(
+            url=url,
+            quality="best",
+        )
+
         # Download video
-        actual_file = download_video(url, file_path)
+        actual_file = download_video(file_path, options)
 
         # Return file with hash in response header
         return FileResponse(
             actual_file,
             media_type='video/mp4',
-            headers={"X-Video-Hash": video_hash, "Content-Disposition": f"attachment; filename={file_name}"}
+            headers={"X-Video-Hash": video_uuid, "Content-Disposition": f"attachment; filename={file_name}"}
         )
     except HTTPException as e:
         raise e
@@ -167,8 +156,9 @@ async def download(url: str = Query(..., description="Video URL from any platfor
 )
 async def download_by_hash(video_hash: str = Path(..., description="Hash of cached video")):
     """Download video file using cached hash. The video info must have been previously extracted."""
-    if video_hash not in video_cache:
-        raise HTTPException(status_code=404, detail="Video hash not found in cache. Please extract info first.")
+    video_cache = CacheRegistry.get_default()
+    if video_cache.exists(video_hash):
+        raise HTTPException(status_code=404, detail="Video hash not found in cache")
 
     cached: dict = video_cache[video_hash]  # type: ignore
     url = cached["url"] if "url" in cached else None
@@ -180,8 +170,12 @@ async def download_by_hash(video_hash: str = Path(..., description="Hash of cach
     file_name = f"{cached.get('title', 'video')}.mp4"
     file_path = os.path.join(TEMP_DIR, file_name)
 
+    options = VideoDownloadOptions(
+        url=url
+    )
+
     try:
-        actual_file = download_video(url, file_path)
+        actual_file = download_video(file_path, options)
         return FileResponse(
             actual_file,
             media_type='video/mp4',
@@ -204,31 +198,19 @@ async def download_by_hash(video_hash: str = Path(..., description="Hash of cach
         500: {"description": "Server error during advanced video processing"}
     }
 )
-async def download_advanced(request: VideoDownloadRequest):
+async def download_advanced(request: VideoDownloadOptions):
     """Download video with advanced options for format, quality, and codec specifications."""
     try:
-        # Cleanup expired cache before adding new entry
-        cleanup_expired_cache()
-
-        # Validate URL
-        if not is_url_valid(request.url):
-            raise HTTPException(status_code=400, detail="URL is not valid or not supported by yt-dlp")
 
         video_info = extract_video_info(request.url)
         video_hash = video_info["video_hash"]
-
-        # Cache video info only (not the file)
-        video_cache[video_hash] = {
-            **video_info,
-            "timestamp": time.time(),
-        }
 
         # Create temporary file path
         file_name = f"{video_hash}.{request.file_format}"
         file_path = os.path.join(TEMP_DIR, file_name)
 
         # Download video with advanced options
-        actual_file = download_video_advanced(request.url, file_path, request)
+        actual_file = download_video(file_path, request)
 
         # Return file with hash in response header
         return FileResponse(
@@ -277,26 +259,30 @@ async def download_advanced(request: VideoDownloadRequest):
 async def get_cache_status():
     """View all cached videos and their expiration status."""
     cache_summary = []
-    for video_hash in list(video_cache):
-        info: dict = video_cache[video_hash]  # type: ignore
-        timestamp = info.get("timestamp", time.time())
-        age_seconds = time.time() - timestamp
-        cache_ttl = int(os.getenv('CACHE_TTL_SECONDS', '3600'))
-        expires_in = max(0, cache_ttl - age_seconds)
+    
+    # TODO: 
+    
+    #for video_hash in list(video_cache):
+    #   info: dict = video_cache[video_hash]  # type: ignore
+    #    timestamp = info.get("timestamp", time.time())
+    #    age_seconds = time.time() - timestamp
+    #    cache_ttl = int(os.getenv('CACHE_TTL_SECONDS', '3600'))
+    #    expires_in = max(0, cache_ttl - age_seconds)
 
-        cache_summary.append({
-            "video_hash": video_hash,
-            "title": info.get("title"),
-            "platform": info.get("platform"),
-            "video_id": info.get("video_id"),
-            "url": info.get("url"),
-            "age_seconds": round(age_seconds, 2),
-            "expires_in_seconds": round(expires_in, 2)
-        })
-    return {
-        "cached_videos": cache_summary,
-        "count": len(cache_summary),
-    }
+    #    cache_summary.append({
+    #        "video_hash": video_hash,
+    #        "title": info.get("title"),
+    #        "platform": info.get("platform"),
+    #        "video_id": info.get("video_id"),
+    #        "url": info.get("url"),
+    #        "age_seconds": round(age_seconds, 2),
+    #        "expires_in_seconds": round(expires_in, 2)
+    #    })
+
+    #return {
+    #    "cached_videos": cache_summary,
+    #    "count": len(cache_summary),
+    #}
 
 
 @app.delete(
@@ -317,8 +303,9 @@ async def get_cache_status():
 )
 async def clear_cache(video_hash: str = Path(..., description="Hash of video to delete")):
     """Delete cached video information."""
-    if video_hash not in video_cache:
+    video_cache = CacheRegistry.get_default()
+    if video_cache.exists(video_hash):
         raise HTTPException(status_code=404, detail="Video hash not found in cache")
-
-    del video_cache[video_hash]
+    
+    #del video_cache[video_hash]
     return {"message": f"Cache cleared for hash: {video_hash}"}

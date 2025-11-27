@@ -18,7 +18,7 @@ class VideoInfo(BaseModel):
     video_id: Optional[str] = None
 
 
-class VideoDownloadRequest(BaseModel):
+class VideoDownloadOptions(BaseModel):
     """Advanced video download request model"""
     url: str
     format_code: Optional[str] = None

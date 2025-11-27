@@ -16,22 +16,6 @@ def extract_video_id(info: Any) -> Optional[str]:
     return info.get("id")
 
 
-def is_url_valid(url: str) -> bool:
-    """Check if URL is valid and supported by yt-dlp."""
-    try:
-        ydl_opts: dict[str, Any] = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore
-            ydl.extract_info(url, download=False)
-            return True
-    except Exception:
-        return False
-
-
 def detect_platform(url: str) -> str:
     """Detect platform from URL using yt-dlp extractor info."""
     try:
