@@ -11,7 +11,7 @@ def generate_video_hash(platform: str, video_id: Optional[str]) -> str:
     return hashlib.sha256(combined.encode()).hexdigest()[:16]
 
 
-def extract_video_id(info: Any) -> Optional[str]:
+def extract_video_id(info: dict) -> Optional[str]:
     """Extract video ID from yt-dlp info dict."""
     return info.get("id")
 

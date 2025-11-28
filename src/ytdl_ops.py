@@ -1,15 +1,39 @@
-from typing import Optional, Any
+from typing import Optional, Any, TypedDict
 import os
 import uuid
 import yt_dlp
+import tempfile
+import threading
+import asyncio
+import shutil
 from fastapi import HTTPException
 
-from .config import TEMP_DIR
+from .config import TEMP_DIR, CACHE_TTL_SECONDS
 from .utils import generate_video_hash, extract_video_id
 from .models import VideoDownloadOptions
 
 
-def extract_video_info(url: str) -> dict:
+
+class VideoInfo(TypedDict):
+    title: Optional[str]
+    duration: Optional[int]
+    uploader: Optional[str]
+    thumbnail: Optional[str]
+    description: Optional[str]
+    view_count: Optional[int]
+    like_count: Optional[int]
+    upload_date: Optional[str]
+    platform: str
+    video_id: Optional[str]
+    video_hash: str
+    url: str
+
+class VideoDownloadData(TypedDict):
+    output_file: str
+    video_info: VideoInfo
+
+
+def extract_video_info(url: str):
     """Extract video information without downloading."""
     try:
         ydl_opts: dict[str, Any] = {
@@ -18,16 +42,16 @@ def extract_video_info(url: str) -> dict:
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore
-            return build_video_info(url, ydl)
+            info = ydl.extract_info(url, download=False)
+            return build_video_info(url, info) # type: ignore
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to extract info: {str(e)}")
 
 
 
-def build_video_info(url: str, ydlInstance: yt_dlp.YoutubeDL) -> dict:
+def build_video_info(url: str, info: dict) -> VideoInfo:
     """Extract video information without downloading."""
     
-    info = ydlInstance.extract_info(url, download=False)
     platform = info.get("extractor", "unknown")
     video_id = extract_video_id(info)
     video_hash = generate_video_hash(platform, video_id)
@@ -49,44 +73,57 @@ def build_video_info(url: str, ydlInstance: yt_dlp.YoutubeDL) -> dict:
 
 def download_video(file_path: str, options: VideoDownloadOptions) -> str:
     """Download video and return ONLY the final merged file."""
-    output_dir = os.path.dirname(file_path) if os.path.dirname(file_path) else TEMP_DIR
 
-    ydl_opts = build_ytdl_options(options)
+    temp_dir = tempfile.mkdtemp(prefix="smvd_", dir=TEMP_DIR)
+
+    ydl_opts = build_ytdl_options(temp_dir, options)
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore
         info = ydl.extract_info(options.url, download=True)
-        
+        output = ydl.prepare_filename(info)
 
-        # yt-dlp returns the pre-merged file (WRONG)
-        temp_path = ydl.prepare_filename(info)
+        def _schedule_cleanup(path: str, delay: int):
+            loop = asyncio.get_running_loop()
+            # schedule and don't await
 
-        # Build the actual merged output path (RIGHT)
-        final_path = os.path.splitext(temp_path)[0] + f".{options.file_format}"
+            async def _async_cleanup():
+                try:
+                    await asyncio.sleep(delay)
+                    _remove_path(path)
+                except Exception:
+                    pass
 
-        # If merged file exists → return it
-        if os.path.exists(final_path):
-            return final_path
+            loop.create_task(_async_cleanup())
 
-        # If merge didn't happen, fallback
-        if os.path.exists(temp_path):
-            return temp_path
+        # Use configured TTL (seconds) for cleanup; default is defined in config
+        try:
+            ttl = int(CACHE_TTL_SECONDS)
+        except Exception:
+            ttl = 3600
 
-        raise RuntimeError(f"Final output not found: {final_path}")
+        _schedule_cleanup(output, ttl)
 
+        return output
 
+def _remove_path(p: str):
+    try:
+        if os.path.isdir(p):
+            shutil.rmtree(p)
+        elif os.path.exists(p):
+            os.remove(p)
+    except Exception:
+        # Best-effort cleanup; ignore failures
+        pass
 
-def build_ytdl_options(opts: VideoDownloadOptions):
+def build_ytdl_options(output_dir: str, opts: VideoDownloadOptions):
     """Build yt-dlp options with progressive priority + fallback merging."""
     
-    random_name = uuid.uuid4().hex
-
     # ---- FORMAT SELECTION ----
     if opts.audio_only:
         selected_format = "bestaudio"
     elif opts.video_only:
         selected_format = "bestvideo"
     else:
-        # First try progressive MP4 with audio
         selected_format = "bv+ba"
 
     # ---- YTDL OPTIONS ----
@@ -95,7 +132,7 @@ def build_ytdl_options(opts: VideoDownloadOptions):
         "merge_output_format": "mp4",        # merges audio+video if separate
         "writesubtitles": False,              # writes subtitles if available
         "writeautomaticsub": False,           # downloads automatic subtitles
-        "outtmpl": "%(title)s.%(ext)s",      # output filename template
+        "outtmpl": os.path.join(output_dir, "%(id)s.%(ext)s"),      # output filename template
         #"ignoreerrors": True,                # continue on download errors
         #"progress_hooks": [lambda d: print(d)], # prints progress similar to CLI
         #"quiet": False,                      # show logs like CLI
