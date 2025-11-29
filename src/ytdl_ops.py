@@ -8,29 +8,13 @@ import asyncio
 import shutil
 from fastapi import HTTPException
 
+from src.cache.cache_manager import CacheManager
+from src.cache.cache_registry import CacheRegistry
+from src.models.video_cache import VideoCacheData
+from src.models.video_data import VideoDownloadOptions, VideoInfo
+
 from .config import TEMP_DIR, CACHE_TTL_SECONDS
 from .utils import generate_video_hash, extract_video_id
-from .models import VideoDownloadOptions
-
-
-
-class VideoInfo(TypedDict):
-    title: Optional[str]
-    duration: Optional[int]
-    uploader: Optional[str]
-    thumbnail: Optional[str]
-    description: Optional[str]
-    view_count: Optional[int]
-    like_count: Optional[int]
-    upload_date: Optional[str]
-    platform: str
-    video_id: Optional[str]
-    video_hash: str
-    url: str
-
-class VideoDownloadData(TypedDict):
-    output_file: str
-    video_info: VideoInfo
 
 
 def extract_video_info(url: str):
@@ -40,7 +24,6 @@ def extract_video_info(url: str):
             'quiet': True,
             'no_warnings': True,
         }
-
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore
             info = ydl.extract_info(url, download=False)
             return build_video_info(url, info) # type: ignore
@@ -50,37 +33,39 @@ def extract_video_info(url: str):
 
 
 def build_video_info(url: str, info: dict) -> VideoInfo:
-    """Extract video information without downloading."""
+    """Extract video information and return a `VideoInfo` model instance."""
     
     platform = info.get("extractor", "unknown")
     video_id = extract_video_id(info)
     video_hash = generate_video_hash(platform, video_id)
 
-    return {
-        "title": info.get("title"),
-        "duration": info.get("duration"),
-        "uploader": info.get("uploader"),
-        "thumbnail": info.get("thumbnail"),
-        "description": info.get("description"),
-        "view_count": info.get("view_count"),
-        "like_count": info.get("like_count"),
-        "upload_date": info.get("upload_date"),
-        "platform": platform,
-        "video_id": video_id,
-        "video_hash": video_hash,
-        "url": url
-    }
+    return VideoInfo(
+        video_hash=video_hash,
+        url=url,
+        title=info.get("title"),
+        duration=info.get("duration"),
+        uploader=info.get("uploader"),
+        thumbnail=info.get("thumbnail"),
+        description=info.get("description"),
+        view_count=info.get("view_count"),
+        like_count=info.get("like_count"),
+        upload_date=info.get("upload_date"),
+        platform=platform,
+        video_id=video_id,
+    )
 
-def download_video(file_path: str, options: VideoDownloadOptions) -> str:
+def download_video(options: VideoDownloadOptions) -> str:
     """Download video and return ONLY the final merged file."""
 
     temp_dir = tempfile.mkdtemp(prefix="smvd_", dir=TEMP_DIR)
-
     ydl_opts = build_ytdl_options(temp_dir, options)
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore
-        info = ydl.extract_info(options.url, download=True)
-        output = ydl.prepare_filename(info)
+        info: dict = ydl.extract_info(options.url, download=True) # type: ignore
+        normalized_info = build_video_info(options.url, info)
+        id = f"{info.get('extractor')}_{info.get('id')}"
+        output = ydl.prepare_filename(info) # type: ignore
+        
 
         def _schedule_cleanup(path: str, delay: int):
             loop = asyncio.get_running_loop()
@@ -102,6 +87,17 @@ def download_video(file_path: str, options: VideoDownloadOptions) -> str:
             ttl = 3600
 
         _schedule_cleanup(output, ttl)
+
+        cache_video = CacheRegistry.get_default()
+        cache_data: VideoCacheData = {
+            "id": id,
+            "url": options.url,
+            "output_path": output,
+            "info": normalized_info,
+            "raw_info": info,
+            "download_options": options
+        }
+        cache_video.set(id, cache_data)
 
         return output
 
@@ -132,7 +128,7 @@ def build_ytdl_options(output_dir: str, opts: VideoDownloadOptions):
         "merge_output_format": "mp4",        # merges audio+video if separate
         "writesubtitles": False,              # writes subtitles if available
         "writeautomaticsub": False,           # downloads automatic subtitles
-        "outtmpl": os.path.join(output_dir, "%(id)s.%(ext)s"),      # output filename template
+        "outtmpl": os.path.join(output_dir, "%(extractor)s_%(id)s.%(ext)s"),
         #"ignoreerrors": True,                # continue on download errors
         #"progress_hooks": [lambda d: print(d)], # prints progress similar to CLI
         #"quiet": False,                      # show logs like CLI

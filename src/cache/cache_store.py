@@ -33,3 +33,23 @@ class CacheStore(ABC):
     def get_ttl(self, key: str) -> Optional[int]:
         """Get remaining TTL in seconds, or None if no TTL."""
         pass
+
+    @abstractmethod
+    def size(self) -> int:
+        """Return the number of items in the cache."""
+        pass
+
+    @abstractmethod
+    def keys(self) -> list[str]:
+        """Return a list of keys currently in the cache."""
+        pass
+    
+    @abstractmethod
+    def values(self) -> list[Any]:
+        """Return a list of values currently in the cache."""
+        pass
+    
+    @abstractmethod
+    def items(self) -> list[tuple[str, Any]]:
+        """Return a list of (key, value) tuples currently in the cache."""
+        pass

@@ -46,3 +46,18 @@ class CacheManager:
     def get_ttl(self, key: str) -> Optional[int]:
         """Delegate to the current strategy."""
         return self._strategy.get_ttl(key)
+
+    def size(self) -> int:
+        """Return the number of items in the cache."""
+        return self._strategy.size()
+    def keys(self) -> list[str]:
+        """Return a list of keys currently in the cache."""
+        return self._strategy.keys()
+        
+    def values(self) -> list[Any]:
+        """Return a list of values currently in the cache."""
+        return self._strategy.values()
+    
+    def items(self) -> list[tuple[str, Any]]:
+        """Return a list of (key, value) tuples currently in the cache."""
+        return self._strategy.items()

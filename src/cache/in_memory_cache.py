@@ -112,3 +112,18 @@ class InMemoryCache(CacheStore):
         """Return the number of items in the cache."""
         with self._lock:
             return len(self._data)
+
+    def keys(self) -> list[str]:
+        """Return a list of keys currently in the cache."""
+        with self._lock:
+            return list(self._data.keys())
+        
+    def values(self) -> list[Any]:
+        """Return a list of values currently in the cache."""
+        with self._lock:
+            return list(self._data.values())
+    
+    def items(self) -> list[tuple[str, Any]]:
+        """Return a list of (key, value) tuples currently in the cache."""
+        with self._lock:
+            return list(self._data.items())
