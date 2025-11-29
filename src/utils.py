@@ -1,5 +1,6 @@
 import hashlib
 from typing import Optional, Any
+import uuid
 
 import yt_dlp
 
@@ -11,9 +12,9 @@ def generate_video_hash(platform: str, video_id: Optional[str]) -> str:
     return hashlib.sha256(combined.encode()).hexdigest()[:16]
 
 
-def extract_video_id(info: dict) -> Optional[str]:
+def extract_video_id(info: dict) -> str:
     """Extract video ID from yt-dlp info dict."""
-    return info.get("id")
+    return info.get("extractor", "unknown") + "_" + info.get("id", uuid.uuid4().hex)
 
 
 def detect_platform(url: str) -> str:

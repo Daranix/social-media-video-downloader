@@ -25,8 +25,23 @@ def extract_video_info(url: str):
             'no_warnings': True,
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore
-            info = ydl.extract_info(url, download=False)
-            return build_video_info(url, info) # type: ignore
+            info: dict = ydl.extract_info(url, download=False) # type: ignore
+            info_result = build_video_info(url, info) # type: ignore
+
+            video_cache = CacheRegistry.get_default()
+
+            cache_data: VideoCacheData = {
+                "id": info_result.id,
+                "url": url,
+                "output_path": None,
+                "info": info_result,
+                "raw_info": info,
+                "download_options": None
+            }
+
+            video_cache.set(info_result.id, cache_data)
+            return cache_data
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to extract info: {str(e)}")
 
@@ -37,10 +52,9 @@ def build_video_info(url: str, info: dict) -> VideoInfo:
     
     platform = info.get("extractor", "unknown")
     video_id = extract_video_id(info)
-    video_hash = generate_video_hash(platform, video_id)
 
     return VideoInfo(
-        video_hash=video_hash,
+        id=video_id,
         url=url,
         title=info.get("title"),
         duration=info.get("duration"),
@@ -136,3 +150,10 @@ def build_ytdl_options(output_dir: str, opts: VideoDownloadOptions):
     }
 
     return ydl_opts
+
+def get_default_download_options(url: str) -> VideoDownloadOptions:
+    """Get default options for downloading videos."""
+    return VideoDownloadOptions(
+        url=url,
+        quality="best",
+    )

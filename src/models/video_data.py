@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 class VideoInfo(BaseModel):
     """Video information model"""
-    video_hash: str
+    id: str
     url: str
     title: Optional[str] = None
     duration: Optional[int] = None

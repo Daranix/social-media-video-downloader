@@ -9,7 +9,7 @@ from src.models.video_cache import VideoCacheData
 from src.models.video_data import VideoDownloadOptions, VideoInfo
 
 from .config import TEMP_DIR
-from .ytdl_ops import extract_video_info, download_video, download_video
+from .ytdl_ops import extract_video_info, download_video, download_video, get_default_download_options
 
 
 CacheRegistry.create('default', 'in-memory')
@@ -23,32 +23,10 @@ app = FastAPI(
 )
 
 @app.get(
-    "/api/extract",
-    response_model=VideoInfo,
+    "/api/info",
+    response_model=VideoCacheData,
     summary="Extract Video Information",
-    tags=["Video Operations"],
-    responses={
-        200: {
-            "description": "Video metadata extracted and cached successfully",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "video_hash": "abc123def456",
-                        "url": "https://example.com/video",
-                        "title": "Example Video",
-                        "duration": 3600,
-                        "uploader": "Example Channel",
-                        "platform": "youtube",
-                        "video_id": "dQw4w9WgXcQ",
-                        "view_count": 1000000,
-                        "thumbnail": "https://example.com/thumb.jpg"
-                    }
-                }
-            }
-        },
-        400: {"description": "Invalid or unsupported URL"},
-        500: {"description": "Server error during metadata extraction"}
-    }
+    tags=["Video Operations"]
 )
 async def extract_info(url: str = Query(..., description="Video URL from any platform supported by yt-dlp")):
     """Extract video information and cache it with hash based on platform and video ID."""
@@ -62,26 +40,10 @@ async def extract_info(url: str = Query(..., description="Video URL from any pla
 
 
 @app.get(
-    "/api/info/{video_id}",
+    "/api/cache/info/{video_id}",
     response_model=VideoInfo,
     summary="Get Cached Video Information",
-    tags=["Cache Operations"],
-    responses={
-        200: {
-            "description": "Cached video metadata retrieved successfully",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "video_hash": "abc123def456",
-                        "url": "https://example.com/video",
-                        "title": "Example Video",
-                        "platform": "youtube"
-                    }
-                }
-            }
-        },
-        404: {"description": "Video hash not found in cache"}
-    }
+    tags=["Cache Operations"]
 )
 async def get_video_info(video_id: str = Path(..., description="Hash of cached video")):
     """Retrieve cached video information by hash."""
@@ -110,10 +72,7 @@ async def download(url: str = Query(..., description="Video URL from any platfor
     """Download video and return file. Video info is automatically extracted and cached."""
     try:
 
-        options = VideoDownloadOptions(
-            url=url,
-            quality="best",
-        )
+        options = get_default_download_options(url)
 
         # Download video
         output_file = download_video(options)
@@ -131,7 +90,7 @@ async def download(url: str = Query(..., description="Video URL from any platfor
 
 
 @app.get(
-    "/api/download/{video_id}",
+    "/api/cache/download/{video_id}",
     summary="Download Video by Hash",
     tags=["Cache Operations"],
     responses={
@@ -152,11 +111,12 @@ async def download_by_id(video_id: str = Path(..., description="Hash of cached v
     video_info: VideoCacheData = video_cache.get(video_id) # type: ignore
     file_path = video_info.get("output_path")
 
-    if os.path.exists(file_path):
+    if file_path and os.path.exists(file_path):
         return FileResponse(file_path, media_type='application/octect-stream', headers={"Content-Disposition": f"attachment; filename={file_path}"})
     else:
         try:
-            file_path = download_video(video_info["download_options"])
+            options = video_info["download_options"] or get_default_download_options(video_info["url"])
+            file_path = download_video(options)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to download video: {str(e)}")
         
@@ -240,7 +200,8 @@ async def get_cache_status():
             "id": value.get("id"),
             "url": value.get("url"),
             "output_path": value.get("output_path"),
-            "info": value.get("info")
+            "info": value.get("info"),
+            "raw_info": value.get("raw_info")
         }
 
     return {
