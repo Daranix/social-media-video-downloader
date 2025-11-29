@@ -1,7 +1,7 @@
 [project]
 name = "social-media-video-downloader"
 version = "0.1.0"
-description = "Add your description here"
+description = "Social media downloader API using FastAPI and yt-dlp"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
