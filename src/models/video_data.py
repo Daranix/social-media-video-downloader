@@ -7,7 +7,7 @@ class VideoInfo(BaseModel):
     id: str
     url: str
     title: Optional[str] = None
-    duration: Optional[int] = None
+    duration: Optional[float] = None
     uploader: Optional[str] = None
     thumbnail: Optional[str] = None
     description: Optional[str] = None
