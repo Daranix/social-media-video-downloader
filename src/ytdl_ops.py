@@ -23,6 +23,7 @@ def extract_video_info(url: str):
         ydl_opts: dict[str, Any] = {
             'quiet': True,
             'no_warnings': True,
+            'extractor_args': {'youtube': {'player_client': ['android_vr']}}
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore
             info: dict = ydl.extract_info(url, download=False) # type: ignore
@@ -143,6 +144,7 @@ def build_ytdl_options(output_dir: str, opts: VideoDownloadOptions):
         "writesubtitles": False,              # writes subtitles if available
         "writeautomaticsub": False,           # downloads automatic subtitles
         "outtmpl": os.path.join(output_dir, "%(extractor)s_%(id)s.%(ext)s"),
+        "extractor_args": {'youtube': {'player_client': ['android_vr']}},
         #"ignoreerrors": True,                # continue on download errors
         #"progress_hooks": [lambda d: print(d)], # prints progress similar to CLI
         #"quiet": False,                      # show logs like CLI

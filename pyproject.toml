@@ -10,3 +10,6 @@ dependencies = [
     "yt-dlp>=2025.11.12",
     "yt-dlp-ejs>=0.3.1",
 ]
+
+[tool.uv.sources]
+yt-dlp = { git = "https://github.com/yt-dlp/yt-dlp.git" }
