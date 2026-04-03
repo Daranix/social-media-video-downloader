@@ -7,6 +7,9 @@ ENV UV_PYTHON_PREFERENCE=only-managed
 # Install a managed Python version for the builder
 RUN uv python install 3.13
 
+# Install git for dependencies from git sources
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Use build cache mounts to speed up dependency installs. Bind pyproject.toml so
@@ -34,7 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the Python installation from the builder
-COPY --from=builder --chown=python:python /python /python
+COPY --from=builder /python /python
 
 # Copy the application from the builder (already installed deps in .venv)
 COPY --from=builder --chown=nonroot:nonroot /app /app
