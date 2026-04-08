@@ -30,10 +30,14 @@ FROM debian:bookworm-slim
 RUN groupadd --system --gid 999 nonroot \
  && useradd --system --gid 999 --uid 999 --create-home nonroot
 
-# Install runtime system deps (ffmpeg for audio extraction, libsndfile)
+# Install runtime system deps (ffmpeg for audio extraction, libsndfile, curl for deno)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     ca-certificates \
+    curl \
+    unzip \
+    && curl -fsSL https://deno.land/install.sh | sh \
+    && mv /root/.deno/bin/deno /usr/local/bin/deno \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the Python installation from the builder
