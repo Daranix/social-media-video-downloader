@@ -7,8 +7,8 @@ ENV UV_PYTHON_PREFERENCE=only-managed
 # Install a managed Python version for the builder
 RUN uv python install 3.13
 
-# Install git for dependencies from git sources
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+# Install git and ca-certificates for dependencies from git sources
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
