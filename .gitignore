@@ -10,3 +10,17 @@ wheels/
 .venv
 
 yt-dlp.exe
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Cookie files
+*cookie*
+*Cookie*
+*COOKIE*
+cookies/
+
+# Test cache
+.pytest_cache/

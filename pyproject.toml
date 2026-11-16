@@ -8,9 +8,17 @@ dependencies = [
     "bgutil-ytdlp-pot-provider>=1.3.1",
     "fastapi[standard]>=0.122.0",
     "python-dotenv>=1.2.1",
-    "yt-dlp>=2025.11.12",
+    "yt-dlp[default,curl-cffi]>=2025.11.12",
     "yt-dlp-ejs>=0.3.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
 ]
 
 [tool.uv.sources]
 yt-dlp = { git = "https://github.com/yt-dlp/yt-dlp.git" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

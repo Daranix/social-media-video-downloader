@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class VideoInfo(BaseModel):
@@ -29,6 +29,18 @@ class VideoDownloadOptions(BaseModel):
     fps: Optional[int] = None
     resolution: Optional[str] = None  # e.g., "1920x1080"
     audio_quality: str = "192"  # kbps
+
+    @field_validator("quality", "file_format")
+    @classmethod
+    def _validate_header_safe_str(cls, value: str) -> str:
+        """Reject control characters and non-Latin-1 text so response headers stay safe."""
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+            raise ValueError("must not contain control characters")
+        try:
+            value.encode("latin-1")
+        except UnicodeEncodeError as exc:
+            raise ValueError("must contain only Latin-1 characters") from exc
+        return value
 
     class Config:
         json_schema_extra = {

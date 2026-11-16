@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from typing_extensions import Literal
 from src.cache.cache_store import CacheStore
 
@@ -18,8 +18,11 @@ class CacheManager:
             strategy: An instance implementing CacheInterface.
         """
         if strategy == 'in-memory':
+            from src import config
             from src.cache.in_memory_cache import InMemoryCache
-            self._strategy = InMemoryCache()
+            raw_interval = config.CACHE_CLEANUP_INTERVAL
+            cleanup_interval = max(1, 300 if raw_interval is None else int(raw_interval))
+            self._strategy = InMemoryCache(cleanup_interval=cleanup_interval)
         else:
             raise ValueError(f"Invalid cache strategy: {strategy}")
     
@@ -61,3 +64,20 @@ class CacheManager:
     def items(self) -> list[tuple[str, Any]]:
         """Return a list of (key, value) tuples currently in the cache."""
         return self._strategy.items()
+
+    def pop(self, key: str) -> Optional[Any]:
+        """Atomically remove and return a non-expired value, or None."""
+        pop_fn = getattr(self._strategy, "pop", None)
+        if callable(pop_fn):
+            return pop_fn(key)
+        value = self._strategy.get(key)
+        if value is not None:
+            self._strategy.delete(key)
+        return value
+
+    def snapshot_entries(self) -> list[tuple[str, Any, Optional[float], Optional[float]]]:
+        """Return an atomic snapshot of active entries with age and remaining TTL."""
+        snap_fn = getattr(self._strategy, "snapshot_entries", None)
+        if callable(snap_fn):
+            return cast(list[tuple[str, Any, Optional[float], Optional[float]]], snap_fn())
+        return [(k, v, None, None) for k, v in self._strategy.items()]

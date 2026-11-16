@@ -12,16 +12,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
 
 WORKDIR /app
 
-# Use build cache mounts to speed up dependency installs. Bind pyproject.toml so
+# Use build cache mounts to speed up dependency installs. Bind pyproject.toml and uv.lock so
 # buildkit can cache dependency resolution separately from source changes.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --no-install-project --no-dev || true
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    uv sync --locked --no-install-project --no-dev
 
 COPY . /app
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev
+    uv sync --locked --no-dev
 
 ## Final image: lightweight Debian bookworm-slim
 FROM debian:bookworm-slim
@@ -30,7 +31,7 @@ FROM debian:bookworm-slim
 RUN groupadd --system --gid 999 nonroot \
  && useradd --system --gid 999 --uid 999 --create-home nonroot
 
-# Install runtime system deps (ffmpeg for audio extraction, libsndfile, curl for deno)
+# Install runtime system deps (ffmpeg for merging/audio extraction, curl for deno)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     ca-certificates \
@@ -53,6 +54,6 @@ USER nonroot
 WORKDIR /app
 
 ENV PORT=8000
-# Default: run the FastAPI app via python main.py
+# Run with --workers 1 because the default cache is process-local in-memory.
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT} --workers 4"]
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port \"${PORT}\" --workers 1"]
